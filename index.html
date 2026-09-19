@@ -112,6 +112,9 @@ main{padding:18px 16px 10px}
 .b-btn.ghost{background:#FCFBF8;color:var(--ink2)}
 .b-btn:active{opacity:.8}
 .b-sep{height:1px;background:var(--line);margin:16px 0}
+.sync-title{font-size:0.92rem;font-weight:600;margin-bottom:10px}
+.sync-row{display:flex;gap:10px}
+.sync-row .b-btn{flex:1;margin-bottom:0}
 
 /* ============ 视图：退出告别 ============ */
 .exit-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:44px 20px;text-align:center;margin-top:52px}
@@ -198,6 +201,15 @@ main{padding:18px 16px 10px}
         <div class="b-sep"></div>
         <button class="b-btn ghost" id="btnImport">恢复备份（选 JSON 文件）</button>
         <input type="file" id="fileImport" accept=".json,application/json" style="display:none">
+        <div class="b-sep"></div>
+        <div class="sync-title">云同步（换手机/浏览器自动找回）</div>
+        <input class="text-input" id="syncToken" type="password" placeholder="粘贴你的 GitHub 密钥（只存本机）" autocomplete="off">
+        <button class="b-btn" id="btnSyncSave">保存密钥并开始同步</button>
+        <div class="sync-row">
+          <button class="b-btn" id="btnSyncPush">上传到云端</button>
+          <button class="b-btn ghost" id="btnSyncPull">从云端恢复</button>
+        </div>
+        <div class="msg" id="syncMsg"></div>
         <div class="msg" id="backupMsg"></div>
       </div>
     </section>
@@ -264,6 +276,7 @@ var records = loadRecords();
 
 function saveRecords() {
   localStorage.setItem(STORE_KEY, JSON.stringify(records));  // 把账存回本地
+  scheduleSyncPush();                                        // 有密钥时顺手同步到云端
 }
 
 /* ---------- 2. 工具函数 ---------- */
@@ -414,6 +427,90 @@ document.getElementById("fileImport").addEventListener("change", function(){
   reader.readAsText(file);
   this.value = "";
 });
+
+/* ---------- 9. 云同步：数据存到你的 GitHub 私有仓库 ---------- */
+var SYNC_REPO = "chiy75824-maker/ledger-data";   // 你的"云保险箱"仓库
+var SYNC_FILE = "data.json";                     // 存数据的文件名
+var SYNC_TOKEN_KEY = "ledger_sync_token";        // 密钥在浏览器里的"抽屉名"
+
+// 小工具：把文字安全地转成 GitHub 需要的 base64（中文不乱码）
+function b64Encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+function b64Decode(str) { return decodeURIComponent(escape(atob(str))); }
+
+function getSyncToken() { return localStorage.getItem(SYNC_TOKEN_KEY) || ""; }
+
+// 保存密钥按钮：密钥只存在本机浏览器，然后立刻从云端拉一次
+document.getElementById("btnSyncSave").addEventListener("click", function(){
+  var token = document.getElementById("syncToken").value.trim();
+  if (!token) { document.getElementById("syncMsg").textContent = "请先粘贴密钥"; return; }
+  localStorage.setItem(SYNC_TOKEN_KEY, token);
+  document.getElementById("syncMsg").textContent = "密钥已保存（只在本机），正在从云端恢复…";
+  syncPull(function(r){ document.getElementById("syncMsg").textContent = r.msg; });
+});
+
+// 从云端拉数据：GitHub 的 data.json → 变成你的账单
+function syncPull(cb) {
+  var token = getSyncToken();
+  if (!token) { cb && cb({ok:false, msg:"还没填密钥"}); return; }
+  fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/" + SYNC_FILE, {
+    headers: {"Authorization":"token " + token, "Accept":"application/vnd.github+json"}
+  }).then(function(res){
+    if (res.status === 404) { cb && cb({ok:false, msg:"云端还没有数据，点「上传到云端」"}); return null; }
+    if (!res.ok) { cb && cb({ok:false, msg:"拉取失败（" + res.status + "），检查密钥或网络"}); return null; }
+    return res.json();
+  }).then(function(data){
+    if (!data) return;
+    var arr = JSON.parse(b64Decode(data.content));   // base64 解码回中文文字
+    if (!Array.isArray(arr)) { cb && cb({ok:false, msg:"云端数据格式不对"}); return; }
+    records = arr;
+    saveRecords();            // 存到本机
+    renderList(); renderStats();
+    cb && cb({ok:true, msg:"已从云端恢复 " + records.length + " 笔"});
+  }).catch(function(){ cb && cb({ok:false, msg:"网络问题，稍后再试"}); });
+}
+
+// 把数据推到云端：本机账单 → GitHub 的 data.json
+function syncPush(cb) {
+  var token = getSyncToken();
+  if (!token) { cb && cb({ok:false, msg:"还没填密钥"}); return; }
+  var content = b64Encode(JSON.stringify(records, null, 2));
+  var api = "https://api.github.com/repos/" + SYNC_REPO + "/contents/" + SYNC_FILE;
+  var headers = {"Authorization":"token " + token, "Accept":"application/vnd.github+json"};
+  // 第一步：查云端有没有旧文件（更新文件需要旧文件的"指纹"sha）
+  fetch(api, {headers: headers}).then(function(res){
+    if (res.status === 404) return null;             // 没有旧文件 → 直接新建
+    if (!res.ok) { cb && cb({ok:false, msg:"检查云端失败（" + res.status + "）"}); return null; }
+    return res.json();
+  }).then(function(old){
+    var body = {message:"记账本同步 " + new Date().toISOString(), content: content};
+    if (old) body.sha = old.sha;    // 有旧文件就带上指纹，GitHub 才允许覆盖
+    return fetch(api, {method:"PUT", headers:headers, body:JSON.stringify(body)});
+  }).then(function(res2){
+    if (!res2) return;
+    if (res2.ok) { cb && cb({ok:true, msg:"已上传云端，共 " + records.length + " 笔"}); }
+    else { res2.json().then(function(j){ cb && cb({ok:false, msg:"上传失败：" + (j.message || res2.status)}); }); }
+  }).catch(function(){ cb && cb({ok:false, msg:"网络问题，稍后再试"}); });
+}
+
+// 上传 / 恢复两个按钮
+document.getElementById("btnSyncPush").addEventListener("click", function(){
+  var m = document.getElementById("syncMsg");
+  m.textContent = "正在上传…";
+  syncPush(function(r){ m.textContent = r.msg; });
+});
+document.getElementById("btnSyncPull").addEventListener("click", function(){
+  var m = document.getElementById("syncMsg");
+  m.textContent = "正在从云端恢复…";
+  syncPull(function(r){ m.textContent = r.msg; });
+});
+
+// 记完一笔自动上传（防抖：1.5 秒内只传一次，不打扰记账）
+var syncTimer = null;
+function scheduleSyncPush() {
+  if (!getSyncToken()) return;                       // 没密钥就不传
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(function(){ syncPush(function(){}); }, 1500);
+}
 
 /* ---------- 4. 记一笔：收入/支出切换 + 分类选择 ---------- */
 var curType = "income";     // 当前类型：income=收入 expense=支出
@@ -609,6 +706,11 @@ function drawBar() {
 /* ---------- 7. 启动时刷一遍 ---------- */
 renderList();
 renderStats();
+
+// 启动时：本地是空账本但有密钥 → 自动从云端拉回来（换浏览器/手机的场景）
+if (records.length === 0 && getSyncToken()) {
+  syncPull(function(){});
+}
 window.addEventListener("resize", function(){
   var p = document.getElementById("pieChart");
   var b = document.getElementById("barChart");
