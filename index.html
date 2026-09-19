@@ -191,6 +191,7 @@ main{padding:18px 16px 10px}
         <div class="b-hint">你的账单存在手机浏览器本地，清缓存、换手机可能会丢。导出一份备份保存好，随时能找回来。</div>
         <button class="b-btn" id="btnExportJson">导出备份（JSON 文件）</button>
         <button class="b-btn" id="btnExportCsv">导出表格（CSV，Excel 能打开）</button>
+        <button class="b-btn ghost" id="btnCopyBackup">复制备份内容（任何手机都能用）</button>
         <div class="b-sep"></div>
         <button class="b-btn ghost" id="btnImport">恢复备份（选 JSON 文件）</button>
         <input type="file" id="fileImport" accept=".json,application/json" style="display:none">
@@ -340,7 +341,7 @@ function exportAsFile(filename, text) {
 // 导出 JSON 备份（完整数据，恢复时用它）
 document.getElementById("btnExportJson").addEventListener("click", function(){
   exportAsFile("记账本备份-" + today() + ".json", JSON.stringify(records, null, 2));
-  document.getElementById("backupMsg").textContent = "已弹出保存面板，选个地方存好就行";
+  document.getElementById("backupMsg").textContent = "已弹出保存/下载，安卓去「下载」文件夹找";
 });
 
 // CSV 单元格小工具：名字里如果有逗号，就用引号包起来（不然 Excel 会串列）
@@ -356,8 +357,34 @@ document.getElementById("btnExportCsv").addEventListener("click", function(){
     lines.push([csvCell(r["日期"]), csvCell(r["名称"]), r["金额"], csvCell(r["分类"])].join(","));
   });
   exportAsFile("记账本-" + today() + ".csv", lines.join("\r\n"));
-  document.getElementById("backupMsg").textContent = "已弹出保存面板，Excel 能打开这个表格";
+  document.getElementById("backupMsg").textContent = "已弹出保存/下载，安卓去「下载」文件夹找";
 });
+
+// 复制备份内容：所有手机 100% 能用的终极兜底
+// 点一下把整份备份复制到剪贴板，粘到备忘录 / 微信文件传输助手 / 文件 App 里保存
+document.getElementById("btnCopyBackup").addEventListener("click", function(){
+  var text = JSON.stringify(records, null, 2);       // 把整份备份变成一段文字
+  var done = function(){
+    document.getElementById("backupMsg").textContent = "备份已复制！去备忘录/文件里粘贴保存";
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    // 新浏览器：直接写入剪贴板
+    navigator.clipboard.writeText(text).then(done, function(){ fallbackCopy(text, done); });
+  } else {
+    // 老浏览器：用隐藏文本框 + 模拟 Ctrl+C 的土办法
+    fallbackCopy(text, done);
+  }
+});
+// 老浏览器复制兜底：造一个看不见的文本框，选中它，模拟复制
+function fallbackCopy(text, done) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); } catch(e) {}
+  document.body.removeChild(ta);
+}
 
 // 点"恢复备份"→ 弹出文件选择框
 document.getElementById("btnImport").addEventListener("click", function(){
