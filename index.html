@@ -129,9 +129,27 @@ main{padding:18px 16px 10px}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 0 12px;color:var(--ink2);font-size:0.72rem}
 .tab svg{width:22px;height:22px}
 .tab.on{color:var(--green-deep);font-weight:600}
+/* 身份选择遮罩：第一次打开问"这是谁的手机" */
+.identity-screen{position:fixed;inset:0;background:var(--bg);z-index:100;display:none;align-items:center;justify-content:center;padding:20px}
+.identity-screen.show{display:flex}
+.id-card{text-align:center;max-width:340px;width:100%}
+.id-big{font-size:1.6rem;font-weight:700;color:var(--green-deep)}
+.id-sub{margin:10px 0 24px;color:var(--ink2);font-size:.92rem}
+.id-btn{display:block;width:100%;background:var(--green);color:#fff;border-radius:12px;padding:15px 0;font-size:1.05rem;font-weight:600;margin-bottom:12px;border:1.5px solid var(--green)}
+.id-btn.family{background:#fff;color:var(--green-deep)}
 </style>
 </head>
 <body>
+<!-- 身份选择遮罩：第一次打开问这是谁的手机 -->
+<div class="identity-screen" id="identityScreen">
+  <div class="id-card">
+    <div class="id-big">菀菀记账本</div>
+    <div class="id-sub">这是谁的手机？（选错了在备份页能切换）</div>
+    <button class="id-btn" id="btnIdMine">我的账本</button>
+    <button class="id-btn family" id="btnIdFamily">家人的账本</button>
+  </div>
+</div>
+
 <div class="shell">
 
   <!-- ============ 头部：本月结余 ============ -->
@@ -202,6 +220,7 @@ main{padding:18px 16px 10px}
         <button class="b-btn ghost" id="btnImport">恢复备份（选 JSON 文件）</button>
         <input type="file" id="fileImport" accept=".json,application/json" style="display:none">
         <div class="b-sep"></div>
+        <div class="sync-title" id="identityLabel">当前账本：</div>
         <div class="sync-title">云同步（换手机/浏览器自动找回）</div>
         <input class="text-input" id="syncToken" type="password" placeholder="粘贴你的 GitHub 密钥（只存本机）" autocomplete="off">
         <button class="b-btn" id="btnSyncSave">保存密钥并开始同步</button>
@@ -210,6 +229,7 @@ main{padding:18px 16px 10px}
           <button class="b-btn ghost" id="btnSyncPull">从云端恢复</button>
         </div>
         <div class="msg" id="syncMsg"></div>
+        <button class="b-btn ghost" id="btnSwitchIdentity" style="margin-top:8px">切换账本（我 / 家人）</button>
         <div class="msg" id="backupMsg"></div>
       </div>
     </section>
@@ -257,25 +277,26 @@ main{padding:18px 16px 10px}
    关掉网页、下次再打开，账都还在。
    ============================================================ */
 
-/* ---------- 1. 数据：从本地存储读取；第一次打开就放上你的旧账本 ---------- */
-var STORE_KEY = "ledger_records_v1";   // 存数据的"抽屉名"
+/* ---------- 1. 身份（我/家人）+ 数据：不同身份用不同抽屉 ---------- */
+var IDENTITY_KEY = "ledger_identity";   // 身份抽屉：my=我的 family=家人的
+function getIdentity() { return localStorage.getItem(IDENTITY_KEY) || ""; }
+function storeKey() { return "ledger_records_v1_" + getIdentity(); }  // 身份不同，抽屉名不同，账就分开
 
 // 新设备第一次打开时：账本是空的（不会看到任何人的账单）
-// 你自己的数据存在你自己设备的浏览器本地（localStorage），删掉这里不影响你已经记的账
 var SEED = [];
 
 function loadRecords() {
-  var saved = localStorage.getItem(STORE_KEY);   // 从本地存储里找账
+  var saved = localStorage.getItem(storeKey());   // 从当前身份的抽屉里找账
   if (saved) {                                    // 找到 → 变回列表用
     return JSON.parse(saved);
   }
-  localStorage.setItem(STORE_KEY, JSON.stringify(SEED));  // 没找到 → 第一次用，放上旧账本
+  localStorage.setItem(storeKey(), JSON.stringify(SEED));  // 没找到 → 第一次用，空账本
   return SEED.slice();
 }
-var records = loadRecords();
+var records = [];   // 先空着，选完身份再 loadRecords
 
 function saveRecords() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(records));  // 把账存回本地
+  localStorage.setItem(storeKey(), JSON.stringify(records));  // 把账存回当前身份的抽屉
   scheduleSyncPush();                                        // 有密钥时顺手同步到云端
 }
 
@@ -430,8 +451,9 @@ document.getElementById("fileImport").addEventListener("change", function(){
 
 /* ---------- 9. 云同步：数据存到你的 GitHub 私有仓库 ---------- */
 var SYNC_REPO = "chiy75824-maker/ledger-data";   // 你的"云保险箱"仓库
-var SYNC_FILE = "data.json";                     // 存数据的文件名
 var SYNC_TOKEN_KEY = "ledger_sync_token";        // 密钥在浏览器里的"抽屉名"
+// 不同身份存不同文件：我的=data.json，家人的=family.json，互不混
+function syncFile() { return getIdentity() === "family" ? "family.json" : "data.json"; }
 
 // 小工具：把文字安全地转成 GitHub 需要的 base64（中文不乱码）
 function b64Encode(str) { return btoa(unescape(encodeURIComponent(str))); }
@@ -452,7 +474,7 @@ document.getElementById("btnSyncSave").addEventListener("click", function(){
 function syncPull(cb) {
   var token = getSyncToken();
   if (!token) { cb && cb({ok:false, msg:"还没填密钥"}); return; }
-  fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/" + SYNC_FILE, {
+  fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/" + syncFile(), {
     headers: {"Authorization":"token " + token, "Accept":"application/vnd.github+json"}
   }).then(function(res){
     if (res.status === 404) { cb && cb({ok:false, msg:"云端还没有数据，点「上传到云端」"}); return null; }
@@ -474,7 +496,7 @@ function syncPush(cb) {
   var token = getSyncToken();
   if (!token) { cb && cb({ok:false, msg:"还没填密钥"}); return; }
   var content = b64Encode(JSON.stringify(records, null, 2));
-  var api = "https://api.github.com/repos/" + SYNC_REPO + "/contents/" + SYNC_FILE;
+  var api = "https://api.github.com/repos/" + SYNC_REPO + "/contents/" + syncFile();
   var headers = {"Authorization":"token " + token, "Accept":"application/vnd.github+json"};
   // 第一步：查云端有没有旧文件（更新文件需要旧文件的"指纹"sha）
   fetch(api, {headers: headers}).then(function(res){
@@ -703,14 +725,43 @@ function drawBar() {
   chart.resize();
 }
 
-/* ---------- 7. 启动时刷一遍 ---------- */
-renderList();
-renderStats();
-
-// 启动时：本地是空账本但有密钥 → 自动从云端拉回来（换浏览器/手机的场景）
-if (records.length === 0 && getSyncToken()) {
-  syncPull(function(){});
+/* ---------- 7. 启动：先选身份，再读账本 ---------- */
+function bootRecords() {
+  records = loadRecords();
+  renderList();
+  renderStats();
+  if (records.length === 0 && getSyncToken()) syncPull(function(){});   // 空账本有密钥 → 自动从云端拉
 }
+refreshIdentityLabel();
+if (!getIdentity()) {
+  document.getElementById("identityScreen").classList.add("show");   // 没选过身份 → 弹出选择
+} else {
+  bootRecords();
+}
+
+// 身份选择：点"我的/家人的"→ 记住身份 → 读对应账本
+function pickIdentity(id) {
+  localStorage.setItem(IDENTITY_KEY, id);
+  document.getElementById("identityScreen").classList.remove("show");
+  bootRecords();
+  refreshIdentityLabel();
+}
+document.getElementById("btnIdMine").addEventListener("click", function(){ pickIdentity("my"); });
+document.getElementById("btnIdFamily").addEventListener("click", function(){ pickIdentity("family"); });
+
+// 备份页显示当前身份 + 切换按钮
+function refreshIdentityLabel() {
+  document.getElementById("identityLabel").textContent = "当前账本：" + (getIdentity() === "family" ? "家人的" : "我的");
+}
+document.getElementById("btnSwitchIdentity").addEventListener("click", function(){
+  var next = getIdentity() === "family" ? "my" : "family";
+  localStorage.setItem(IDENTITY_KEY, next);
+  records = loadRecords();
+  renderList(); renderStats();
+  refreshIdentityLabel();
+  document.getElementById("backupMsg").textContent = "已切换为" + (next === "family" ? "家人的账本" : "我的账本");
+  if (getSyncToken()) syncPull(function(){});   // 拉新身份的云端数据
+})
 window.addEventListener("resize", function(){
   var p = document.getElementById("pieChart");
   var b = document.getElementById("barChart");
