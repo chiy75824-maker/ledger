@@ -747,23 +747,59 @@ function pickIdentity(id) {
   bootRecords();
   refreshIdentityLabel();
 }
-document.getElementById("btnIdMine").addEventListener("click", function(){ pickIdentity("my"); });
+
+// 进"我的账本"前要验密码（保护你的账不被家人看到）
+// 密码存在云端 switch.json，第一次用让你设一个
+function verifyMinePwd(onOk) {
+  var token = getSyncToken();
+  if (!token) { alert("请先粘贴 GitHub 密钥"); return; }
+  fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/switch.json", {
+    headers: {"Authorization":"token " + token, "Accept":"application/vnd.github+json"}
+  }).then(function(res){
+    if (res.status === 404) {
+      // 第一次：让你设密码
+      var pwd = prompt("第一次进「我的账本」，请设一个密码（只有你知道，保护你的账）：");
+      if (!pwd) return;
+      var content = b64Encode(JSON.stringify({password: pwd}));
+      return fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/switch.json", {
+        method:"PUT",
+        headers:{"Authorization":"token "+token, "Accept":"application/vnd.github+json"},
+        body: JSON.stringify({message:"设置账本密码", content: content})
+      }).then(function(){ onOk(); });
+    }
+    return res.json().then(function(data){
+      var saved = JSON.parse(b64Decode(data.content));
+      var input = prompt("进「我的账本」密码：");
+      if (input === saved.password) onOk();
+      else alert("密码不对，进不去哦");
+    });
+  }).catch(function(){ alert("网络问题，稍后再试"); });
+}
+// 点"我的账本"→ 要密码；点"家人的账本"→ 直接进（家人零门槛）
+document.getElementById("btnIdMine").addEventListener("click", function(){ verifyMinePwd(function(){ pickIdentity("my"); }); });
 document.getElementById("btnIdFamily").addEventListener("click", function(){ pickIdentity("family"); });
 
 // 备份页显示当前身份 + 切换按钮
 function refreshIdentityLabel() {
   document.getElementById("identityLabel").textContent = "当前账本：" + (getIdentity() === "family" ? "家人的" : "我的");
 }
+// 切换账本：从家人切回"我的"要密码；从我的切到"家人的"不用密码（你自己的手机随便看）
 document.getElementById("btnSwitchIdentity").addEventListener("click", function(){
-  if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }   // 关键：切换前停掉待执行的自动上传，防止把旧账本数据推到新文件
-  var next = getIdentity() === "family" ? "my" : "family";
+  if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+  if (getIdentity() === "family") {
+    verifyMinePwd(function(){ doSwitchIdentity("my"); });   // 家人的 → 我的：要密码
+  } else {
+    doSwitchIdentity("family");                              // 我的 → 家人的：直接切
+  }
+});
+function doSwitchIdentity(next) {
   localStorage.setItem(IDENTITY_KEY, next);
   records = loadRecords();
   renderList(); renderStats();
   refreshIdentityLabel();
   document.getElementById("backupMsg").textContent = "已切换为" + (next === "family" ? "家人的账本" : "我的账本");
   if (getSyncToken()) syncPull(function(){});   // 拉新身份的云端数据
-})
+}
 window.addEventListener("resize", function(){
   var p = document.getElementById("pieChart");
   var b = document.getElementById("barChart");
