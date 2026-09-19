@@ -307,8 +307,10 @@ document.getElementById("btnBack").addEventListener("click", function(){
 
 /* ---------- 8. 备份：导出 / 恢复 ---------- */
 // downloadFile：在浏览器里"造"一个文件并触发下载
-function downloadFile(filename, text, mime) {
-  var blob = new Blob([text], {type: mime});          // 把文字变成"文件内容"
+// ★ 文件类型故意用"未知类型"(octet-stream)：这样 iPhone/iPad 会把文件
+//   老老实实"保存下来"，而不是像 .json 那样自作主张打开显示内容
+function downloadFile(filename, text) {
+  var blob = new Blob([text], {type: "application/octet-stream"});  // 把文字变成"文件内容"
   var url = URL.createObjectURL(blob);                // 给这个文件造一个临时网址
   var a = document.createElement("a");                // 造一个隐藏的"下载链接"
   a.href = url;
@@ -316,12 +318,12 @@ function downloadFile(filename, text, mime) {
   document.body.appendChild(a);
   a.click();                                          // 模拟点一下 → 浏览器开始下载
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);                           // 用完销毁临时网址
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);   // 稍后再销毁临时网址（iPhone 需要时间）
 }
 
 // 导出 JSON 备份（完整数据，恢复时用它）
 document.getElementById("btnExportJson").addEventListener("click", function(){
-  downloadFile("记账本备份-" + today() + ".json", JSON.stringify(records, null, 2), "application/json");
+  downloadFile("记账本备份-" + today() + ".json", JSON.stringify(records, null, 2));
   document.getElementById("backupMsg").textContent = "已导出备份文件，请保存好";
 });
 
@@ -337,7 +339,7 @@ document.getElementById("btnExportCsv").addEventListener("click", function(){
   records.forEach(function(r){
     lines.push([csvCell(r["日期"]), csvCell(r["名称"]), r["金额"], csvCell(r["分类"])].join(","));
   });
-  downloadFile("记账本-" + today() + ".csv", lines.join("\r\n"), "text/csv");
+  downloadFile("记账本-" + today() + ".csv", lines.join("\r\n"));
   document.getElementById("backupMsg").textContent = "已导出表格，Excel 可以打开";
 });
 
