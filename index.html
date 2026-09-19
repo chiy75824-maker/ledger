@@ -2,6 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1F4A36">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -188,7 +191,7 @@ main{padding:18px 16px 10px}
     <!-- ===== 视图：备份（导出/恢复） ===== -->
     <section class="view" id="view-backup">
       <div class="backup-card">
-        <div class="b-hint">你的账单存在手机浏览器本地，清缓存、换手机可能会丢。导出一份备份保存好，随时能找回来。</div>
+        <div class="b-hint">你的账单存在手机浏览器本地，清缓存、换手机可能会丢。导出一份备份保存好，随时能找回来。<br><span style="opacity:.75">版本 v6 · 看不到「复制备份内容」按钮 = 还是旧页面，下拉刷新一下</span></div>
         <button class="b-btn" id="btnExportJson">导出备份（JSON 文件）</button>
         <button class="b-btn" id="btnExportCsv">导出表格（CSV，Excel 能打开）</button>
         <button class="b-btn ghost" id="btnCopyBackup">复制备份内容（任何手机都能用）</button>
