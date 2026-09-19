@@ -757,15 +757,9 @@ function verifyMinePwd(onOk) {
     headers: {"Authorization":"token " + token, "Accept":"application/vnd.github+json"}
   }).then(function(res){
     if (res.status === 404) {
-      // 第一次：让你设密码
-      var pwd = prompt("第一次进「我的账本」，请设一个密码（只有你知道，保护你的账）：");
-      if (!pwd) return;
-      var content = b64Encode(JSON.stringify({password: pwd}));
-      return fetch("https://api.github.com/repos/" + SYNC_REPO + "/contents/switch.json", {
-        method:"PUT",
-        headers:{"Authorization":"token "+token, "Accept":"application/vnd.github+json"},
-        body: JSON.stringify({message:"设置账本密码", content: content})
-      }).then(function(){ onOk(); });
+      // 云端没有密码文件 → 不让任何人自己设（防家人误设进你的账本）
+      alert("这是机主的账本，请联系机主");
+      return;
     }
     return res.json().then(function(data){
       var saved = JSON.parse(b64Decode(data.content));
