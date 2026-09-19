@@ -741,6 +741,7 @@ if (!getIdentity()) {
 
 // 身份选择：点"我的/家人的"→ 记住身份 → 读对应账本
 function pickIdentity(id) {
+  if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }   // 切换前停掉待执行的自动上传
   localStorage.setItem(IDENTITY_KEY, id);
   document.getElementById("identityScreen").classList.remove("show");
   bootRecords();
@@ -754,6 +755,7 @@ function refreshIdentityLabel() {
   document.getElementById("identityLabel").textContent = "当前账本：" + (getIdentity() === "family" ? "家人的" : "我的");
 }
 document.getElementById("btnSwitchIdentity").addEventListener("click", function(){
+  if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }   // 关键：切换前停掉待执行的自动上传，防止把旧账本数据推到新文件
   var next = getIdentity() === "family" ? "my" : "family";
   localStorage.setItem(IDENTITY_KEY, next);
   records = loadRecords();
