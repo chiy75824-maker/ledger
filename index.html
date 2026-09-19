@@ -321,10 +321,26 @@ function downloadFile(filename, text) {
   setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);   // 稍后再销毁临时网址（iPhone 需要时间）
 }
 
+// exportAsFile：iPhone 上导出的"最优解"
+// 1) 优先弹 iPhone 系统自带的"分享面板"（可存到文件 / 发微信 / 存备忘录等第三方应用）
+// 2) 手机不支持分享面板时（老手机 / 电脑），回退成上面的普通下载
+function exportAsFile(filename, text) {
+  var blob = new Blob([text], {type: "application/octet-stream"});
+  var file = new File([blob], filename, {type: "application/octet-stream"});
+  if (navigator.canShare && navigator.canShare({files: [file]})) {
+    // iPhone 会弹出分享面板：选"存储到文件"最方便，也可以发给微信等
+    navigator.share({files: [file], title: filename}).catch(function(){
+      downloadFile(filename, text);   // 用户点了"取消"→ 改用普通下载兜底
+    });
+    return;
+  }
+  downloadFile(filename, text);
+}
+
 // 导出 JSON 备份（完整数据，恢复时用它）
 document.getElementById("btnExportJson").addEventListener("click", function(){
-  downloadFile("记账本备份-" + today() + ".json", JSON.stringify(records, null, 2));
-  document.getElementById("backupMsg").textContent = "已导出备份文件，请保存好";
+  exportAsFile("记账本备份-" + today() + ".json", JSON.stringify(records, null, 2));
+  document.getElementById("backupMsg").textContent = "已弹出保存面板，选个地方存好就行";
 });
 
 // CSV 单元格小工具：名字里如果有逗号，就用引号包起来（不然 Excel 会串列）
@@ -339,8 +355,8 @@ document.getElementById("btnExportCsv").addEventListener("click", function(){
   records.forEach(function(r){
     lines.push([csvCell(r["日期"]), csvCell(r["名称"]), r["金额"], csvCell(r["分类"])].join(","));
   });
-  downloadFile("记账本-" + today() + ".csv", lines.join("\r\n"));
-  document.getElementById("backupMsg").textContent = "已导出表格，Excel 可以打开";
+  exportAsFile("记账本-" + today() + ".csv", lines.join("\r\n"));
+  document.getElementById("backupMsg").textContent = "已弹出保存面板，Excel 能打开这个表格";
 });
 
 // 点"恢复备份"→ 弹出文件选择框
